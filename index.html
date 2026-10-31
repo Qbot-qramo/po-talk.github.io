@@ -1744,9 +1744,9 @@ const APP_VERSION = 'v0.16.23'
 // （上の 1 は APP_VERSION より前のブロックにある）
 
 const $ = id => document.getElementById(id)
-// ─ 要素操作の共通化（リファクタ C）─ 表示中のコントロール行は flex/none の往復がほとんどなので 1 本に寄せる
+// ─ 表示トグルの共通化 ─ 表示中のコントロール行は flex/none の往復がほとんどなので 1 本に寄せる
 const vis = (id, on) => { const el = $(id); if (el) el.style.display = on ? 'flex' : 'none' }
-// ─ frame スケジュールの共通化（リファクタ D）─ requestAnimationFrame の直書きを束ねる（2 段はスタイル確定待ち）
+// ─ frame スケジュールの共通化 ─ requestAnimationFrame の直書きを束ねる（2 段はスタイル確定待ち）
 const raf = fn => requestAnimationFrame(fn)
 const raf2 = fn => requestAnimationFrame(() => requestAnimationFrame(fn))
 // localStorage は**必ずここを通す**。Safari のプライベートモードやストレージ拒否の環境では
@@ -2655,8 +2655,8 @@ const HEART_HALF_R = 'M14.36 4.77 C14.89 4.53 15.48 4.40 16.10 4.40 C18.80 4.40 
 const HEART_BROKEN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" overflow="visible" aria-hidden="true"><g transform="rotate(-9 12 21)"><path d="' + HEART_HALF_L + '"/></g><g transform="rotate(9 12 21)"><path d="' + HEART_HALF_R + '"/></g></svg>'
 
 // SNS 定義（ID ホワイトリスト方式・URL 自由入力を排除して XSS/フィッシング防止）
-// ─ 共通の ID 解析（入力検証ヘルパー・リファクタ B/E）─ 「URL 形か素の ID を受け、ホワイトリストの ID だけ返す」
-// 定型を 1 本に寄せる（v0.16.23 リファクタ）。URL 抽出後も同じホワイトリストで再検査するのは元の形と同じ結果。
+// ─ 共通の ID 解析（入力検証ヘルパー）─ 「URL 形か素の ID を受け、ホワイトリストの ID だけ返す」
+// 定型を 1 本に寄せる。URL 抽出後も同じホワイトリストで再検査するのは元の形と同じ結果。
 // 例外（youtube の @ハンドル/UC… 、amazon の複合 URL 、zap/nostr の特殊系）は元の parse を残す。
 const idDef = (name, host, idRe, urlOf, at) => ({
   name, re: idRe,
@@ -4420,7 +4420,7 @@ const bgmSchedule = (stepSec, onStep) => {
   bgm.timers.push(setInterval(tick, 400))
 }
 const ctx0 = () => audioCtx
-// ─ 共通の音の粒（音合成ヘルパー・リファクタ A/E）─ 「発振器＋Gain＋柔らかアタック→減衰」の反復を一元化。
+// ─ 共通の音の粒（音合成ヘルパー）─ 「発振器＋Gain＋柔らかアタック→減衰」の反復を一元化。
 // playTones（通知音）・bgmPing（BGM）が同じ形を使っていた。音の形（エンベロープの値）は変えていない。
 const oscVoice = (ctx, { at, dur, freq, type = 'sine', peak, dest, pan, stopAt }) => {
   const o = ctx.createOscillator(), g = ctx.createGain()
@@ -4485,7 +4485,7 @@ const bgmAmbient = seed => {
     if (!bgm) return
     const [root, ivs] = prog[n++ % 4], t = ctx.currentTime
     ivs.concat([12]).forEach((iv, k) => {
-      const o = ctx.createOscillator(), g = bgmTrack(ctx.createGain())   // 11秒かけて入って抜ける直線エンベロープ（和音专用の形なので oscVoice は使わない）
+      const o = ctx.createOscillator(), g = ctx.createGain()   // 11秒かけて入って抜ける直線エンベロープ（和音専用の形なので oscVoice は使わない。ワンショットなので bgmTrack には入れない）
       o.type = k % 2 ? 'sine' : 'triangle'
       o.frequency.value = BGM_HZ(root + iv - 12) * (1 + (rnd() - 0.5) * 0.004)
       g.gain.setValueAtTime(0.0001, t)
