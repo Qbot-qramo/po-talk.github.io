@@ -1752,7 +1752,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(k, v) } catch {} }
 const ssGet = (k, d = null) => { try { return sessionStorage.getItem(k) ?? d } catch { return d } }
 const ssSet = (k, v) => { try { sessionStorage.setItem(k, v) } catch {} }
 const ssDel = k => { try { sessionStorage.removeItem(k) } catch {} }
-// localStorage に置いてある JSON を*読む*とき必ず通す。壊れた鍵・未初始化では {}
+// localStorage に置いてある JSON を*読む*ときに通す。壊れた値・未保存では {}
 // を返す（例外時も非オブジェクト時も {}・以下同一）。v0.16 以前の 2 か所で
 // try/JSON.parse(lsGet(..)||'{}')/catch の同一形を集約（stats 復元と loadCard）。
 const lsJson = k => { try { const o = JSON.parse(lsGet(k) || '{}'); return o && typeof o === 'object' ? o : {} } catch { return {} } }
