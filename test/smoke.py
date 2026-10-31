@@ -1293,7 +1293,7 @@ def T51(r, room):
     h = '#' + o.eval("document.getElementById('share').href").split('#', 1)[1]
     click_join(o)
     assert o.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER), '配信者が参加できない'
-    # ★v0.16.11：鍵は IndexedDB（pot-call-keys）に引っ越したので、退避は下の __potBcErase(true) が担う
+    # ★v0.16.23：鍵は IndexedDB（pot-call-keys）に引っ越したので、退避は下の __potBcErase(true) が担う
     # （同じブラウザで「抜けたら戻る」を再現するため、いったん stash へ逃がして元に戻す）
     o.eval("window.__potBcErase(true)")   # 聞き役は鍵を持たない
     l = r.open_tab(hash_=h)
@@ -1310,7 +1310,7 @@ def T51(r, room):
     o.eval("location.hash = %s" % js_str(h[1:]), await_promise=False)
     o.call('Page.reload'); time.sleep(0.5); o.wait_for(BOOTED, timeout=SHORT)
     click_join(o)
-    # ★v0.16.11：同じタブの同じ鍵で戻ったことを先に待つ（聞いている側の見立てを先に数えない）
+    # ★v0.16.23：同じタブの同じ鍵で戻ったことを先に待つ（聞いている側の見立てを先に数えない）
     back = o.wait_for("!document.getElementById('tabs').hidden", timeout=DISCOVER)
     resumed = l.wait_for("!%s.includes('戻るのを待っています') && %s.includes('配信者の声')" % (BC_NOTE, BC_NOTE), timeout=DISCOVER)
     # ④ 二度目：戻らない → 60 秒で「終了」→ 15 秒で退出
@@ -2726,6 +2726,38 @@ def T84(r, room):
         click_leave(t)
 
 
+def T87(r):
+    """配信鍵の引っ越し（v0.16.23・監査 S1）：v0.16.22 までの localStorage の鍵（JWK）が、起動時に
+    取り出せない鍵として IndexedDB へ移り、localStorage から消える。**指紋は変わらない**＝前に配った
+    配信リンクで、今まで通り配信者として入れる（同じ部屋名で作り直しても同じリンクになる）。
+    """
+    a = r.open_tab()
+    a.eval("localStorage.setItem('pot-call-hide-help','1'); document.querySelectorAll('dialog[open]').forEach(d => d.close())")
+    a.eval("window.__potBcErase()")
+    # 旧版と同じ作り方で鍵を置く（取り出せる鍵・JWK・raw の公開鍵・指紋＝SHA-256 の先頭 16 バイト）
+    fp = a.eval(r"""(async () => {
+      const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+      const kp = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])
+      const jwk = await crypto.subtle.exportKey('jwk', kp.privateKey)
+      const raw = await crypto.subtle.exportKey('raw', kp.publicKey)
+      const pub = b64u(raw), fp = b64u((await crypto.subtle.digest('SHA-256', raw)).slice(0, 16))
+      localStorage.setItem('pot-call-bcast', JSON.stringify({ [fp]: { name: '引っ越しテスト', jwk, pub, at: Date.now() } }))
+      return fp
+    })()""")
+    a.call('Page.reload'); time.sleep(0.5)
+    booted = a.wait_for(BOOTED, timeout=SHORT)
+    listed = a.wait_for("window.__potBcList().some(k => k.fp === %s && k.name === '引っ越しテスト')" % js_str(fp), timeout=SHORT)
+    ls_gone = a.eval("localStorage.getItem('pot-call-bcast') === null")
+    # 同じ名前で配信部屋を選ぶと、同じ指紋のリンクになる（新しい鍵を作らない）
+    a.eval("(() => { document.getElementById('createBox').open = true; const i = document.getElementById('room');"
+           " i.value = '引っ越しテスト'; i.dispatchEvent(new Event('input')); document.getElementById('kindBc').click() })()")
+    same = a.wait_for("document.getElementById('share').href.includes('~pk~' + %s)" % js_str(fp), timeout=SHORT)
+    a.eval("window.__potBcErase()")
+    ok = booted and listed and ls_gone and same
+    r.check('T87', '配信鍵の引っ越し：localStorage の旧い鍵が IndexedDB へ移り、指紋（配信リンク）は変わらない', ok, 'pass',
+            '起動=%s / 移った=%s / 旧い置き場から消えた=%s / 同じリンク=%s' % (booted, listed, ls_gone, same))
+
+
 def T86(r, room):
     """通話中の部屋の並び順（v0.16.15）：評価の関数と、自分の部屋が先頭に固定されること
 
@@ -3964,6 +3996,8 @@ def main():
             T84(r, room)
         if run('T85'):
             T85(r, room)
+        if run('T87'):
+            T87(r)
         if run('T86'):
             T86(r, room)
         if run('T27i'):

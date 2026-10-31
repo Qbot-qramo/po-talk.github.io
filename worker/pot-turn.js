@@ -39,12 +39,12 @@
 //   （CDN が origin ごとに応答を分けないと、他人向けの応答が混ざる）。
 //   `!ok` の 403 は**上流を叩く前**に置く＝弾く相手のぶんの資格情報を発行しない。
 //   移設中は新旧＋org の github.io を並べておく（旧サイトを誘導ページにしたら外せる）。
-// - **レート制限（S3・2026-10-21 導入）** … 無料プランの日次 10 万リクエストを使い切られると、
+// - **レート制限（S3・2026-10-31 導入）** … 無料プランの日次 10 万リクエストを使い切られると、
 //   その日は資格情報が配れず全員が直結（IP が見える）に落ちる。以前は「意図して入れていない」
 //   （下記 2026-10-12 の検討記録）だったが、アプリ通常の取り直し（10 分に 1 回・通話開始時数回）を
 //   大きく上回る 1 分 30 回/IP を上限として入れる。二段構成:
 //     ① wrangler の Rate Limiting binding（`env.turnLimiter`）が設定されていればそれを使う
-//       （wrangler.toml の [ratelimits]・proximity=true。設定方法はこの下の B 案参照）
+//       （wrangler.toml の [[unsafe.bindings]] type="ratelimit"・呼び方は limit({ key })。設定方法はこの下の B 案参照）
 //     ② 未設定なら isolates 内のメモリすべり窓（近似：isolate が増えるほど緩和側にずれる）
 //   超過は 429 + Retry-After:30。アプリ側は 429 を「上流が一時的に拒否」として従来の
 //   502 と同じフォールバック（直結 STUN）で扱う＝通話は落ちない。
@@ -60,7 +60,7 @@
 //   検討した案：A＝Worker を potalk.app の独自ドメインに移して WAF のレート制限ルール（画面だけ）／B＝Wrangler で
 //   Rate Limiting binding（画面からは設定不可・デプロイ手順が変わる）／C＝アプリの取り直し間隔（10 分）を延ばす。
 //   いずれも多数の IP を使い分けられると防ぎきれない。①は B の実装、②は当面の暫定版。
-// **認証の土台（S3・2026-10-21）**：`TURN_ACCESS_SECRET` を設定したときだけ `X-Pot-Turn-Token`
+// **認証の土台（S3・2026-10-31）**：`TURN_ACCESS_SECRET` を設定したときだけ `X-Pot-Turn-Token`
 //   ヘッダの一致を要求し、違えば 401。既定（未設定）は従来どおりヘッダなしで通す。
 //   注意：静的な index.html はソースが丸見えなので**恒久の秘密にはできない**（2026-06-11 の
 //   「公開ファイルに秘密を書かない」教訓）。この土台は (a) 管理下のクライアントだけで試す
@@ -112,7 +112,7 @@ export default {
     const clientKey = origin + '|' + (request.headers.get('CF-Connecting-IP') || 'unknown')
     try {
       if (env.turnLimiter) {
-        const lim = await env.turnLimiter.limit(clientKey, { proximity: true })
+        const lim = await env.turnLimiter.limit({ key: clientKey })
         if (!lim.success) return new Response(JSON.stringify({ error: 'rate limited' }),
           { status: 429, headers: { ...cors, 'Content-Type': 'application/json', 'Retry-After': '30' } })
       } else {

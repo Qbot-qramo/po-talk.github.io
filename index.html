@@ -2092,7 +2092,7 @@ const capRoomId = v => roomIdOf(capRoom(roomBase(v)), roomPk(v))
 // オーナーであることの証明は**秘密鍵を持っていること**だけで決まる。トークン方式を捨てた理由は
 // HANDOFF 2026-08-13 の訂正：他人のクライアントに検証手段が無いので「自分がオーナーだ」と
 // 名乗るだけで通ってしまう。`crypto.subtle` は標準搭載なのでサーバ無しで本物の検証ができる。
-// ★監査 S1（v0.16.11）：鍵の置き場所を localStorage（JWK の**平文文字列**）から、名刺の鍵と同じ
+// ★監査 S1（v0.16.23）：鍵の置き場所を localStorage（JWK の**平文文字列**）から、名刺の鍵と同じ
 //   IndexedDB・extractable:false（取り出せない CryptoKey）へ移した。localStorage は同じページで
 //   動く悪いスクリプトがいつでもそのまま読める場所。配信鍵も「ブラウザの中で署名させる」以上の
 //   持ち出しをさせない。古い鍵は初回の起動で自動移行（bcMigrate＝利用者の操作は要らない・指紋＝
@@ -2120,10 +2120,10 @@ const idbReq = (mode, fn) => new Promise((res, rej) => {
 const BC_IDB_PREFIX = 'bc:'          // 名刺と同じ DB の中の配信鍵レコード（'bc:'+指紋）
 const BC_STASH_PREFIX = 'bcstash:'   // ★テスト用（下の __potBcErase）だけ。通常コードは触らない
 const BC_MAX = 20            // 溜め込まない。古い順に捨てる（＝古い配信部屋のオーナー権は失う）。移動後の IndexedDB 側でも同じ
-const BC_LEGACY_KEY = 'pot-call-bcast'   // v0.16.10 までの localStorage 保存。移行の読み出し専用（移行後は書かない・消す）
+const BC_LEGACY_KEY = 'pot-call-bcast'   // v0.16.22 までの localStorage 保存。移行の読み出し専用（移行後は書かない・消す）
 const bcKeysMem = new Map()  // 指紋 → { fp, name, pub, at, sign: CryptoKey(取り出せない) }。起動時の preload で満たし、同期判定（ownerKeyByFp）はこれだけを見る
 const importVerify = pub => crypto.subtle.importKey('raw', unb64u(pub), ECDSA, false, ['verify'])
-// ── 配信部屋の鍵の実装（v0.16.11・上の設計メモと名刺の鍵の節を参照） ──
+// ── 配信部屋の鍵の実装（v0.16.23・上の設計メモと名刺の鍵の節を参照） ──
 const bcIdbPut = rec => idbReq('readwrite', st => st.put(rec, BC_IDB_PREFIX + rec.fp))
 const bcIdbDel = (fp, prefix = BC_IDB_PREFIX) => idbReq('readwrite', st => st.delete(prefix + fp))
 const bcRange = prefix => IDBKeyRange.bound(prefix, prefix + '\uffff')
@@ -2155,7 +2155,7 @@ const bcMigrate = async () => {
   }
 }
 // **同じ部屋名なら同じ鍵**を使い回す＝配信リンクが毎回変わらない（前に配ったリンクが生き続ける）。
-// v0.16.11 の鍵生成は extractable:false（名刺と同じ）。秘密鍵の JWK は二度と作らない＝書き出せない。
+// v0.16.23 の鍵生成は extractable:false（名刺と同じ）。秘密鍵の JWK は二度と作らない＝書き出せない。
 const ownerKeyFor = async name => {
   const hit = [...bcKeysMem.values()].find(v => v.name === name)
   if (hit) return hit
@@ -2170,7 +2170,7 @@ const ownerKeyFor = async name => {
 // 同期（参加 UI のあちこちで呼ばれる）だが、中身はメモリだけ＝下の preload が終えていれば正しい。
 // preload は同じモジュールの評価順でこの後ろの初期化より先に走る（await を跨ぐ初期化はない）。
 const ownerKeyByFp = fp => (fp && bcKeysMem.get(fp)) || null
-// ★テストの差し替え口（smoke.py・v0.16.11）：取り出せない鍵は書き出して戻せないため、消す前に
+// ★テストの差し替え口（smoke.py・v0.16.23）：取り出せない鍵は書き出して戻せないため、消す前に
 //   同じ DB 内の bcstash: に一時コピーする。通常の利用では呼ばれない（テスト eval 専用）。
 window.__potBcList = () => [...bcKeysMem.values()].map(({ fp, name, at }) => ({ fp, name, at }))
 window.__potBcErase = async (keepStash = false) => {
@@ -2204,7 +2204,9 @@ const bcKeysPreload = async () => {
     bcEvict()
   } catch { /* プライベートモード等で IndexedDB が使えない：鍵なしで進む（配信部屋を作るとき applyBcast のエラーで知らせる） */ }
 }
-await bcKeysPreload()
+// ★待つのは 3 秒まで：IndexedDB の open が返ってこない端末（iOS の一部で既知）でも、ページ全体が
+//   起動しないまま止まらないようにする。間に合わなければ鍵なしで進み、読み込みは裏で続く。
+await Promise.race([bcKeysPreload(), new Promise(r => setTimeout(r, 3000))])
 // 登壇引き継ぎトークン（v0.14.26 / v0.14.27）：枠主が許可時に発行し、リスナーが sessionStorage で保持。
 // つなぎ直し後に提示することで、枠主が新しい peerId を名簿に追加して再署名する。
 const GRANT_TOKEN_TTL_MS = 10 * 60 * 1000  // 10分間有効（つなぎ直し・トラブルシュートの猶予・v0.14.27）
@@ -2529,7 +2531,7 @@ const CARD_NOIMG_KEY = 'pot-call-card-noimg'   // 「相手の名刺の画像を
 // 受け手は ①問い返しに鍵で署名させ（持ち主か）②証拠に同じ指紋があるか、の両方を確かめる＝証拠を写しただけの
 // 人は ① で落ちる。① の署名文には部屋・問う側・答える側の peerId を入れる＝問い返しの横流し（偽者が本人へ
 // 問いを回して答えを持ち帰る）を防ぐ（本人の署名には本人の peerId が入るので、偽者経由では一致しない）。
-// ★CARD_IDB・idbReq は上の「配信部屋の鍵」の節へ移した（v0.16.11・同じ DB を両方の鍵で使うため）
+// ★CARD_IDB・idbReq は上の「配信部屋の鍵」の節へ移した（v0.16.23・同じ DB を両方の鍵で使うため）
 const fpLine = fp => 'potalk1-' + fp            // 証拠に載せる指紋の書式
 let cardKeyRec = null                           // {priv: CryptoKey(取り出せない), pub: 公開鍵 b64url, fp}
 // create=false は読むだけ（無ければ null）。鍵を作るのは本人確認を始めたときだけ
@@ -7542,7 +7544,7 @@ const runJoin = async () => {
   call.bcast = bcast
   if (owner) {
     try {
-      call.ownerKey = owner.sign   // v0.16.11：保存済みの「取り出せない鍵」をそのまま使う（JWK の import はもう無い）
+      call.ownerKey = owner.sign   // v0.16.23：保存済みの「取り出せない鍵」をそのまま使う（JWK の import はもう無い）
       call.ownerPub = owner.pub
       call.grants = new Set([myPeerId])   // オーナーはまず自分を名簿に載せる（自分への許可も同じ道を通る）
       // 配信者のつなぎ直し復元（v0.14.26）：前回の登壇リスナーが部屋に残っていれば名簿を引き継ぐ
